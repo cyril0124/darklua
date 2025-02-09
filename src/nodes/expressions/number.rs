@@ -364,6 +364,14 @@ impl FromStr for NumberExpression {
                             .with_exponent(exponent, exponent_is_uppercase)
                     } else {
                         let filtered = filter_underscore(value.get(position + 1..).unwrap());
+                        let filtered = if filtered.ends_with("ull") || filtered.ends_with("ULL") { 
+                            String::from(&filtered[..filtered.len() - 3])
+                        } else if filtered.ends_with("ll") || filtered.ends_with("LL") {
+                            String::from(&filtered[..filtered.len() - 2])
+                        } else {
+                            filtered
+                        };
+
                         let number = u64::from_str_radix(&filtered, 16)
                             .map_err(|_| Self::Err::InvalidHexadecimalNumber)?;
 
@@ -381,47 +389,67 @@ impl FromStr for NumberExpression {
                 }
             }
             _ => {
-                // in Luau, underscores are valid everywhere in a number except
-                // after a `.`
-                if value.starts_with("._") {
-                    return Err(Self::Err::InvalidDecimalNumber);
-                }
+                let has_ull_suffix = value.ends_with("ULL") || value.ends_with("ull");
+                let has_ll_suffix = value.ends_with("LL") || value.ends_with("ll");
 
-                if let Some((exponent_is_uppercase, index)) = value
-                    .find('e')
-                    .map(|index| (false, index))
-                    .or_else(|| value.find('E').map(|index| (true, index)))
-                {
-                    // in Luau, underscores are not valid before the exponent sign
-                    if value.contains("_-") || value.contains("_+") {
+                if has_ull_suffix || has_ll_suffix {
+                    if value.ends_with("_ULL") || value.ends_with("_ull") || value.ends_with("_LL") || value.ends_with("_ll") {
                         return Err(Self::Err::InvalidDecimalExponent);
                     }
 
-                    let exponent = value
-                        .get(index + 1..)
-                        .map(filter_underscore)
-                        .and_then(|string| string.parse().ok())
-                        .ok_or(Self::Err::InvalidDecimalExponent)?;
-                    let _number: f64 = value
-                        .get(0..index)
-                        .map(filter_underscore)
-                        .and_then(|string| string.parse().ok())
-                        .ok_or(Self::Err::InvalidDecimalNumber)?;
+                    let numeric_part = if has_ull_suffix { 
+                        &value[..value.len() - 3]
+                    } else {
+                        &value[..value.len() - 2]
+                    };
 
-                    DecimalNumber::new(
-                        filter_underscore(value)
-                            .parse::<f64>()
-                            .map_err(|_| Self::Err::InvalidDecimalNumber)?,
-                    )
-                    .with_exponent(exponent, exponent_is_uppercase)
+                    let filtered = filter_underscore(numeric_part);
+
+                    let parsed_value = filtered.parse::<i64>().map_err(|_| Self::Err::InvalidDecimalNumber)?;
+                    DecimalNumber::new(parsed_value as f64).into()
                 } else {
-                    let number = filter_underscore(value)
-                        .parse::<f64>()
-                        .map_err(|_| Self::Err::InvalidDecimalNumber)?;
+                    // in Luau, underscores are valid everywhere in a number except
+                    // after a `.`
+                    if value.starts_with("._") {
+                        return Err(Self::Err::InvalidDecimalNumber);
+                    }
 
-                    DecimalNumber::new(number)
+                    if let Some((exponent_is_uppercase, index)) = value
+                        .find('e')
+                        .map(|index| (false, index))
+                        .or_else(|| value.find('E').map(|index| (true, index)))
+                    {
+                        // in Luau, underscores are not valid before the exponent sign
+                        if value.contains("_-") || value.contains("_+") {
+                            return Err(Self::Err::InvalidDecimalExponent);
+                        }
+
+                        let exponent = value
+                            .get(index + 1..)
+                            .map(filter_underscore)
+                            .and_then(|string| string.parse().ok())
+                            .ok_or(Self::Err::InvalidDecimalExponent)?;
+                        let _number: f64 = value
+                            .get(0..index)
+                            .map(filter_underscore)
+                            .and_then(|string| string.parse().ok())
+                            .ok_or(Self::Err::InvalidDecimalNumber)?;
+
+                        DecimalNumber::new(
+                            filter_underscore(value)
+                                .parse::<f64>()
+                                .map_err(|_| Self::Err::InvalidDecimalNumber)?,
+                        )
+                        .with_exponent(exponent, exponent_is_uppercase)
+                    } else {
+                        let number = filter_underscore(value)
+                            .parse::<f64>()
+                            .map_err(|_| Self::Err::InvalidDecimalNumber)?;
+
+                        DecimalNumber::new(number)
+                    }
+                    .into()
                 }
-                .into()
             }
         };
 
